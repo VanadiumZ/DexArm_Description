@@ -93,6 +93,23 @@ u_start = [0.0, 0.0, 0.0, 0.0, 3.141592653589793,
 
 `xarm7_wuji_90*.urdf` 和 `xarm7_gripper.urdf` 不属于 direct 构型；如上层控制器有额外的安全初始姿态要求，请以控制器配置为准。
 
+## Wuji self-collision 过滤 U 组
+
+四个 Wuji 构型在后续创建 Isaac Scene 时，统一通过环境侧的 pair-wise collision filter 处理；原始 URDF 文件保持不修改。过滤 U 组**仅包含以下 4 对 link**：
+
+```text
+U_wuji_self_collision = {
+  (right_finger2_link2, right_palm_link),
+  (right_finger3_link2, right_palm_link),
+  (right_finger4_link2, right_palm_link),
+  (right_finger5_link2, right_palm_link),
+}
+```
+
+这些 link2 与手掌在正常装配时存在几何重叠/过近，属于需要忽略的相邻结构碰撞。`finger1_link2` 不在过滤组内，应保留正常碰撞检测。
+
+请注意：旧配置中错误地过滤了 `link7` 与 `right_palm_link`。该 pair **不应再加入过滤组**；xArm7 腕部与手掌的碰撞应继续由规划器检查。在 Isaac Scene 创建完成、获取到对应 link/prim 后，将上述 4 对 link 加入环境的 collision filter，保持其余 self-collision 开启。
+
 ## 在仿真器中加载
 
 1. 将仓库根目录加入仿真器的资源搜索路径，确保 `meshes/...` 相对路径能够解析。
