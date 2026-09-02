@@ -95,7 +95,7 @@ u_start = [0.0, 0.0, 0.0, 0.0, 3.141592653589793,
 
 ## Wuji self-collision 过滤 U 组
 
-四个 Wuji 构型在后续创建 Isaac Scene 时，统一通过环境侧的 pair-wise collision filter 处理；原始 URDF 文件保持不修改。过滤 U 组**仅包含以下 4 对 link**：
+四个 Wuji 构型在后续创建 Isaac Scene 时，统一通过环境侧的 pair-wise collision filter 处理；原始 URDF 文件保持不修改。所有构型都需要过滤以下 4 对 link：
 
 ```text
 U_wuji_self_collision = {
@@ -108,7 +108,7 @@ U_wuji_self_collision = {
 
 这些 link2 与手掌在正常装配时存在几何重叠/过近，属于需要忽略的相邻结构碰撞。`finger1_link2` 不在过滤组内，应保留正常碰撞检测。
 
-请注意：旧配置中错误地过滤了 `link7` 与 `right_palm_link`。该 pair **不应再加入过滤组**；xArm7 腕部与手掌的碰撞应继续由规划器检查。在 Isaac Scene 创建完成、获取到对应 link/prim 后，将上述 4 对 link 加入环境的 collision filter，保持其余 self-collision 开启。
+关于 `link7` 与 `right_palm_link`：该 pair 不能简单判定为错误。对于带 90° 转接件的 `xarm7_wuji_90.urdf` 和 `xarm7_wuji_90_camera.urdf`，腕部、转接件和手掌在装配上可能相邻或局部重叠；如果当前 Isaac Scene 的几何检查确认存在这类结构性接触，应在 90° 构型的 U 组中额外过滤该 pair。直装构型则不应无条件沿用旧的 `link7 ↔ right_palm_link` 过滤。最终请依据实际加载的构型和碰撞几何启用对应 pair，保持其余 self-collision 开启。
 
 ## 在仿真器中加载
 
