@@ -93,6 +93,28 @@ u_start = [0.0, 0.0, 0.0, 0.0, 3.141592653589793,
 
 `xarm7_wuji_90*.urdf` 和 `xarm7_gripper.urdf` 不属于 direct 构型；如上层控制器有额外的安全初始姿态要求，请以控制器配置为准。
 
+## Wuji self-collision 过滤 U 组
+
+四个 Wuji 构型在后续创建 Isaac Scene 时，统一通过环境侧的 pair-wise collision filter 处理；原始 URDF 文件保持不修改。针对手掌与手指基部的结构性重叠，所有构型都需要过滤以下 4 对 link：
+
+```text
+U_wuji_self_collision = {
+  (right_finger2_link2, right_palm_link),
+  (right_finger3_link2, right_palm_link),
+  (right_finger4_link2, right_palm_link),
+  (right_finger5_link2, right_palm_link),
+}
+```
+
+这些 link2 与手掌在正常装配时存在几何重叠/过近，属于需要忽略的相邻结构碰撞。`finger1_link2` 不在过滤组内，应保留正常碰撞检测。
+
+关于 `link7` 相关过滤，请按构型处理：
+
+- **直连构型**（`xarm7_wuji_direct*.urdf`）：`joint_eef` 将手掌放在 `link7` 法兰前方约 30 mm，默认不需要过滤 `link7 ↔ right_palm_link`。如果沿用已有直连场景配置，应保留 `link7 ↔ right_finger{2,3,4,5}_link2` 这组过滤；同时加入上面列出的 `right_finger{2,3,4,5}_link2 ↔ right_palm_link` 过滤。
+- **90° 转接构型**（`xarm7_wuji_90*.urdf`）：腕部、90° 转接件和手掌的相对位置不同，`link7 ↔ right_palm_link` 可能出现结构性接触。只有在 Isaac Scene 的实际碰撞几何确认存在重叠时，才将该 pair 加入 90° 构型的 U 组。
+
+因此，`link7 ↔ right_palm_link` 不是全局错误，也不是所有构型都必须过滤的固定规则；应根据构型和实际加载的碰撞几何单独决定。其余 self-collision 保持开启。
+
 ## 在仿真器中加载
 
 1. 将仓库根目录加入仿真器的资源搜索路径，确保 `meshes/...` 相对路径能够解析。
