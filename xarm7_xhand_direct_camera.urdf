@@ -210,31 +210,9 @@
       <origin rpy="0 0 0" xyz="0 0 0"/>
     </visual>
 
-    <!--
-      xHand adapter mounting frame.  The adapter STL is in millimetres and
-      its plate normal is the mesh +Y axis.  Rotate it +90 deg about X so
-      that the plate normal follows the xArm link7 +Z flange axis, then place
-      the adapter's mounting centre on the flange.
-    -->
-    <visual>
-      <geometry>
-        <!-- Centered on link7 axis; outer radius matches the flange shoulder. -->
-        <mesh filename="meshes/adapter/xhand_adapter.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <origin rpy="1.5708 0 0" xyz="0 0 0.0005"/>
-    </visual>
     <collision>
-      <geometry>
-        <mesh filename="meshes/xarm7_1305/collision/link7.obj"/>
-      </geometry>
+      <geometry><mesh filename="meshes/xarm7_1305/collision/link7.obj"/></geometry>
       <origin rpy="0 0 0" xyz="0 0 0"/>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="meshes/adapter/xhand_adapter.stl" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <origin rpy="1.5708 0 0" xyz="0 0 0.0005"/>
     </collision>
   </link>
   <joint name="joint7" type="revolute">
@@ -244,6 +222,27 @@
     <axis xyz="0 0 1"/>
     <limit effort="20" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.14"/>
     <dynamics damping="2" friction="1"/>
+  </joint>
+
+  <link name="adapter_camera_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/adapter/xhand_adapter_camera.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/adapter/xhand_adapter_camera.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </collision>
+  </link>
+  <joint name="link7_to_adapter_camera" type="fixed">
+    <!-- adapter_camera_link origin is the adapter's circular mounting centre. -->
+    <parent link="link7"/>
+    <child link="adapter_camera_link"/>
+    <origin xyz="0 0 0.0005" rpy="1.5708 0 3.1416"/>
   </joint>
  
   <link name="link_eef"/>
@@ -754,14 +753,14 @@
       Since this joint is the root of the XHand tree, the transform applies
       to the palm and every finger link together.
     -->
-    <parent link="link7" />
+    <parent link="adapter_camera_link" />
     <child link="right_hand_link" />
-    <!-- link7 flange (z=0) -> adapter top (z=36.5 mm). -->
-    <origin xyz="0 0 0.025" rpy="3.14159265 0 1.5707963" />
+    <!-- Adapter frame -> XHand mounting face; preserves the original hand pose. -->
+    <origin xyz="0 0.0245 0" rpy="-1.1086034 -1.5707881 2.6793997" />
   </joint>
 
   <!-- D405 cameras extracted from xhand_xarm7_with_cameras.d405.mm.stl.
-       These origins are expressed in the right_hand_link frame; the D405
+       These origins are expressed in the adapter_camera_link frame; the D405
        mesh itself is already in the matching local coordinate convention. -->
   <link name="d405_camera_1_link">
     <visual>
@@ -777,11 +776,11 @@
       </geometry>
     </collision>
   </link>
-  <joint name="right_hand_to_d405_camera_1" type="fixed">
+  <joint name="adapter_to_d405_camera_1" type="fixed">
     <!-- Upper/positive-y camera in the extracted assembly. -->
-    <origin xyz="0.093977 -0.032933 0.022768"
-            rpy="2.618011 -0.462533 -3.141589"/>
-    <parent link="right_hand_link"/>
+    <origin xyz="0.0329323 0.00173235 0.0939772"
+            rpy="2.6180357 1.1082600 -1.5707742"/>
+    <parent link="adapter_camera_link"/>
     <child link="d405_camera_1_link"/>
   </joint>
 
@@ -799,11 +798,11 @@
       </geometry>
     </collision>
   </link>
-  <joint name="right_hand_to_d405_camera_2" type="fixed">
+  <joint name="adapter_to_d405_camera_2" type="fixed">
     <!-- Lower/negative-y camera in the extracted assembly. -->
-    <origin xyz="-0.026697 0.060898 -0.010410"
-            rpy="3.011275 0.092298 -3.141577"/>
-    <parent link="right_hand_link"/>
+    <origin xyz="-0.0608978 0.0349099 -0.0266976"
+            rpy="-0.1305675 1.4785020 1.5705475"/>
+    <parent link="adapter_camera_link"/>
     <child link="d405_camera_2_link"/>
   </joint>
 
