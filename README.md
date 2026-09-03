@@ -11,8 +11,8 @@
   ```
 
   这里的 `u` 指机械臂的 7 个关节起始配置；角度使用弧度，`pi` 和 `pi/2` 请在加载配置时转换为数值。
-- `xarm7_xhand_direct_camera.urdf` 和 `xarm7_wuji_direct_camera.urdf` 中的相机安装仍在**检修/校准中** 🛠️，相机位姿和实际硬件可能存在偏差；如需稳定使用视觉功能，请优先选择其他可用的 camera 构型。
-- 除上述两个 camera 模型外，其余 URDF 均可正常使用。使用相机模型时请确认 `meshes/camera/d405.stl` 路径可访问。
+- `xarm7_xhand_direct_camera.urdf` 中的相机安装仍在**检修/校准中** 🛠️，相机位姿和实际硬件可能存在偏差；如需稳定使用视觉功能，请优先选择其他可用的 camera 构型。
+- 除上述 XHand camera 模型外，其余 URDF 均可正常使用。使用相机模型时请确认 `meshes/camera/d405.stl` 路径可访问。
 - URDF 中的 `visual` 用于显示，`collision` 用于碰撞检测；不要随意删除碰撞网格，否则会影响规划和仿真结果。
 
 ## 文件结构
@@ -57,7 +57,7 @@
 | --- | --- | --- | --- |
 | `xarm7_gripper.urdf` | xArm 原厂平行夹爪 | 直接安装在 `link7`，包含左右手指、内外指节和 `link_tcp` | ✅ 可用 |
 | `xarm7_wuji_direct.urdf` | Wuji 五指灵巧手 | 通过 `wuji_xarm_adapter_1` 直装，末端坐标由 `joint_eef` 固定连接 | ✅ 可用；需设置 direct 起始 pose |
-| `xarm7_wuji_direct_camera.urdf` | Wuji + 两个 D405 | 直装版本上增加 `camera_stand_link`、适配器和两个固定 D405 相机 | ⚠️ 相机检修/校准中；需设置 direct 起始 pose |
+| `xarm7_wuji_direct_camera.urdf` | Wuji + 两个 D405 | 直装版本上增加 `camera_stand_link`、适配器和两个固定 D405 相机 | ✅ 可用；需设置 direct 起始 pose |
 | `xarm7_wuji_90.urdf` | Wuji 五指灵巧手 | 适配器相对 `link7` 旋转约 90°（`rpy` 中可见 `-1.5708`），改变手的安装朝向 | ✅ 可用 |
 | `xarm7_wuji_90_camera.urdf` | Wuji + 两个 D405 | 90° 适配版本；相机支架位于两段适配器之间，两个相机固定在正交安装面 | ✅ 可用 |
 | `xarm7_xhand_direct.urdf` | XHand 五指灵巧手 | 通过 `xhand_adapter` 直装，含 `link_eef`、`link_tcp` 和拇指/食指/中指/无名指/小指关节链 | ✅ 可用；需设置 direct 起始 pose |
@@ -126,4 +126,4 @@ U_wuji_self_collision = {
 
 - 修改适配器或相机安装位姿后，同时检查 `visual`、`collision` 和对应 `joint` 的 `origin`。
 - 新增网格时，保持目录分类和相对路径风格，并确认文件名大小写与 URDF 完全一致（Linux 区分大小写）。
-- XHand camera 或 Wuji direct camera 检修完成后，请分别重新标定两个 D405 的外参，并更新对应 URDF 中的固定关节位姿。
+- XHand camera 检修完成后，请重新标定两个 D405 的外参，并更新对应 URDF 中的固定关节位姿。
