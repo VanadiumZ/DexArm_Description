@@ -986,4 +986,12 @@
     <parent link="right_finger5_link4"/>
     <child link="right_finger5_tip_link"/>
   </joint>
+  <!-- Virtual observation frame: user-tuned X=4 mm; Y/Z from palm mesh bounds.
+       Geometric reference, not a calibrated contact-surface center. -->
+  <link name="palm_center"/>
+  <joint name="palm_center_joint" type="fixed">
+    <parent link="right_palm_link"/>
+    <child link="palm_center"/>
+    <origin xyz="0.004 -0.0023529 0.0434161" rpy="0 0 0"/>
+  </joint>
 </robot>

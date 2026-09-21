@@ -114,6 +114,100 @@ U_wuji_self_collision = {
 
 因此，`link7 ↔ right_palm_link` 不是全局错误，也不是所有构型都必须过滤的固定规则；应根据构型和实际加载的碰撞几何单独决定。其余 self-collision 保持开启。
 
+## Wuji 虚拟掌心与 RL training
+
+四个 `xarm7_wuji_*.urdf` 均定义同名虚拟坐标系 `palm_center`；
+XHand 和 gripper 暂不添加。该 frame 通过固定关节挂在 `right_palm_link` 下：
+
+```xml
+<link name="palm_center"/>
+<joint name="palm_center_joint" type="fixed">
+  <parent link="right_palm_link"/>
+  <child link="palm_center"/>
+  <origin xyz="0.004 -0.0023529 0.0434161" rpy="0 0 0"/>
+</joint>
+```
+
+位置单位为米，即手掌局部坐标 `(+4.0000, -2.3529, +43.4161) mm`。
+X 是交互调试后的设定，Y/Z 来自掌体网格包围盒中心；它是 observation 参考点，
+不是已标定的接触面中心，也不是质心。`rpy=0` 表示坐标轴与手掌同向，
+并不表示与 `link7` 同向。四种安装链各自决定它相对机械臂末端的变换。
+
+该 link 不包含 visual、collision 或 inertial，也不增加可动自由度；
+可视化时显示的球体只是调试标记，不应作为碰撞几何写入训练资产。
+
+### 训练环境需要接入的内容
+
+仅更新 URDF 不会自动切换策略 observation，也不需要改 PPO/SAPG 等优化算法。
+环境初始化时明确指定参考刚体与目标 frame，例如：
+
+```yaml
+# 示例配置字段，由训练环境自行实现读取，并非 URDF/Isaac 的内置开关。
+palm_reference_body: link7
+palm_frame: palm_center
+```
+
+1. 从选中的原始 URDF 沿固定关节链求出 `T_link7_palm_center`，
+   包含全部适配器、相机支架和手掌安装变换。在初始化时计算并缓存；
+   不要将 `(0.004, -0.0023529, 0.0434161)` 直接当作 link7 下的偏移。
+   不同构型分别求解，不跨构型复用末端变换。缺少 frame 或链上包含可动关节时应明确报错。
+2. 导入开启 `merge_fixed_joints=True`（Isaac Sim/Lab）或
+   `collapse_fixed_joints=True`（Isaac Gym）时，`palm_center` 可能不再是独立刚体。
+   可继续保留合并，每步从实际保留的 `link7` 刚体位姿重建虚拟掌心；
+   如果导入器保留的是其他参考刚体，需按实际 body/frame 重新求固定变换。
+   不要直接假设 `find_bodies("palm_center")` 能查到。
+3. 用虚拟掌心统一生成 `palm_pos`、`palm_rot`、
+   `fingertip_pos_rel_palm` 和 `keypoints_rel_palm`，并检查 reward、
+   critic state、成功条件中使用 palm 的位置，避免混用 link7 与掌心语义。
+4. 多环境中，位置减去 env origin；坐标轴方向仍按环境的约定处理。
+   保持字段顺序和 quaternion 约定一致，例如 Isaac Lab 内部 wxyz，
+   如策略约定 xyzw，则在拼 observation 时转换。
+5. 若使用 palm 速度，计算偏移点线速度；下面公式要求输入为参考 link
+   **原点**的线速度。如果仿真器返回质心速度，应先转换至参考 link 原点，
+   或直接使用质心到虚拟掌心的位移，不能混用两种位置与速度。
+
+令 `T_A_B` 将 B 中的坐标变换到 A，训练每步的几何关系为：
+
+```python
+# 初始化：从完整 URDF 固定链取得，按构型缓存。
+T_link7_palm = urdf.get_transform("palm_center", "link7")  # yourdfpy 示例
+r = T_link7_palm[:3, 3]
+R_offset = T_link7_palm[:3, :3]
+
+# 每步：以下是单环境矩阵记法；批量训练使用对应张量运算。
+offset_world = R_world_link7 @ r
+p_world_palm = p_world_link7 + offset_world
+R_world_palm = R_world_link7 @ R_offset
+
+palm_pos = p_world_palm - env_origin
+palm_rot = matrix_to_policy_quaternion(R_world_palm)  # 按策略约定实现
+fingertip_pos_rel_palm = fingertips_world - p_world_palm
+keypoints_rel_palm = object_keypoints_world - p_world_palm
+
+v_world_palm = v_world_link7_origin + cross(omega_world_link7, offset_world)
+omega_world_palm = omega_world_link7
+```
+
+上面的相对位置保持现有世界轴向量差约定，没有乘掌心逆旋转。
+如果另行选择掌心局部坐标表达，则还需乘 `R_world_palm.T`，
+这属于另一种 observation 定义，应显式区分。
+掌心速度示例也使用世界轴；需要局部速度时应同样转换。
+
+### 验证、checkpoint 与部署
+
+- 先对每种构型跑小规模 FK 检查：在零位和一个非零关节位姿下，
+  检查 `T_world_link7 @ T_link7_palm_center` 与原始 URDF 的 palm FK 一致；
+  frame 添加前后都应保持 27 个可动关节。
+- 在实际仿真导入后检查保留的 body/frame、掌心显示位置、quaternion 顺序，
+  并做一次 observation shape/finiteness 和短步运行检查。
+  这里的 URDF/FK 检查不能代替 Isaac 导入与动力学验证；
+  frame-only link 若未被导入器保留，应使用上述变换重建方法。
+- 旧策略若使用 link7 原点/朝向，新 palm 定义虽可保持 observation 维度不变，
+  数值与含义仍发生变化。不要直接将旧 checkpoint 当作兼容策略；
+  旧模型回放需保留旧 observation 约定，新训练或明确的微调使用新定义。
+- 部署端、数据采集和训练端必须读取相同版本的 URDF，使用相同掌心 frame、
+  位置/姿态/速度计算和关节顺序。将资产构型、掌心定义及 observation 版本记录在实验配置中。
+
 ## 在仿真器中加载
 
 1. 将仓库根目录加入仿真器的资源搜索路径，确保 `meshes/...` 相对路径能够解析。
