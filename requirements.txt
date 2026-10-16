@@ -1,0 +1,6 @@
+# Versions used by the migrated viewer; standalone CPU environment.
+numpy==1.26.0
+scipy==1.15.3
+yourdfpy==0.0.60
+trimesh==4.5.1
+viser==1.0.30

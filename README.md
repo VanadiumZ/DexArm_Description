@@ -2,6 +2,32 @@
 
 本仓库提供基于 **UFACTORY xArm7** 的多种末端执行器（Wuji 灵巧手、XHand、xArm 平行夹爪）URDF 模型，以及对应的可视化/碰撞网格。模型可用于 ROS、Gazebo、PyBullet、Isaac Sim 等支持 URDF 的工具链。
 
+## 虚拟掌心与 observation 查看器
+
+独立工具入口为 [`tools/urdf_observation_viewer.py`](tools/urdf_observation_viewer.py)，
+同时展示侧装 Wuji、直装相机 Wuji 和历史 Kuka + 左 Sharpa，支持关节调节、
+visual/collision 显示、虚拟掌心位置调节及 observation 几何对照。
+Kuka + Sharpa 的完整 URDF 和网格已随工具迁入 `assets/urdf/kuka_sharpa_description/`。
+
+**历史训练 observation 功能专门针对 SimToolReal 风格训练设计**，保留 Interprior
+迁移时的字段顺序、世界轴相对向量、xyzw quaternion、指尖偏移及 link7 掌心基线。
+这些是特定训练约定，不是所有机器人或训练框架通用的 observation 标准；
+显示结果不会自动修改训练配置。详细约定见
+[`docs/asset_observation_comparison.md`](docs/asset_observation_comparison.md)。
+
+普通 Python 3.11 CPU 环境即可运行，不依赖 Interprior 或 Isaac Sim：
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m tools.urdf_observation_viewer --host 127.0.0.1 --port 8080
+```
+
+打开 `http://localhost:8080`，使用 `Virtual palm tuning · 手掌局部坐标` 调节掌心。
+调节结果只显示为可复制的 URDF XML，**不会自动保存到资产**。
+完整安装、远程访问、资产参数和测试方法见 [`docs/environment.md`](docs/environment.md)。
+
 ## ⚠️ 使用前须知
 
 - `direct` 构型的 **u start pose 必须设置为**：
@@ -19,6 +45,12 @@
 ```text
 .
 ├── README.md
+├── requirements.txt                 # 查看器独立运行依赖
+├── requirements-dev.txt             # 测试依赖
+├── tools/urdf_observation_viewer.py  # 虚拟掌心与 observation 查看器
+├── docs/                            # 环境与历史 observation 说明
+├── tests/                           # 几何检查
+├── assets/urdf/kuka_sharpa_description/  # Kuka + 左 Sharpa URDF 与网格
 ├── xarm7_gripper.urdf                 # xArm 原厂平行夹爪
 ├── xarm7_wuji_direct.urdf             # xArm7 + Wuji 灵巧手，直装
 ├── xarm7_wuji_direct_camera.urdf      # 直装 Wuji + 相机支架 + 双 D405
@@ -37,7 +69,7 @@
     └── camera/                         # Intel RealSense D405 外形网格
 ```
 
-网格路径均以仓库根目录为基准。部分 STL 来源以毫米建模，URDF 中已通过 `scale="0.001 0.001 0.001"` 或对应的位姿变换换算到米制；导入其他软件时请保持这一单位约定。
+xArm 模型的网格路径以仓库根目录为基准；Kuka + Sharpa 网格路径以其 URDF 所在目录为基准。部分 STL 来源以毫米建模，URDF 中已通过 `scale="0.001 0.001 0.001"` 或对应的位姿变换换算到米制；导入其他软件时请保持这一单位约定。
 
 ## URDF 内部组成
 
