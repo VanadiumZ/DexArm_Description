@@ -10,7 +10,7 @@
 X 经用户调节为 +4 mm，Y/Z 保留掌体 visual mesh 包围盒中心，作为两版同一手掌的几何参考；
 它不是标定的接触面中心，也不是惯性中心。Viser 的 Virtual palm tuning 面板
 可分别调整两版局部 xyz，紫色点实时更新，显示可复制的 URDF origin XML。
-调节不自动保存文件，训练 observation 仍使用原定义。
+调节过程只预览，点击各模型的确认按钮会写入对应 URDF；训练 observation 配置不会自动切换。
 
 Kuka 的历史 palm offset `(0,-0.02,0.16)` m 换算到 `left_hand_C_MC` 下为
 `(0.01931854,-0.00517630,0.065)` m。Sharpa 掌体网格范围为

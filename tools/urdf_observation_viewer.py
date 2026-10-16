@@ -26,6 +26,9 @@ from typing import Any
 
 import numpy as np
 from scipy.spatial.transform import Rotation
+from lxml import etree
+
+from tools.urdf_palm import save_palm_frame
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -317,81 +320,83 @@ Quaternion signs are canonicalized to `qw >= 0`; `q` and `-q` represent the same
 """
 
 
+class UrdfView:
+    """Minimal visual/collision URDF renderer without viser.extras imports."""
+
+    def __init__(
+        self,
+        urdf: Any,
+        server: Any,
+        *,
+        root_node_name: str,
+        color: tuple[int, int, int],
+        collision: bool,
+    ) -> None:
+        self.urdf = urdf
+        self.server = server
+        self.collision = collision
+        self.scene = urdf.collision_scene if collision else urdf.scene
+        if self.scene is None:
+            raise ValueError("requested URDF scene graph was not loaded")
+        self.joint_frames = []
+        for joint in urdf.joint_map.values():
+            self.joint_frames.append(
+                self.server.scene.add_frame(
+                    self._node_name(joint.child, root_node_name), show_axes=False
+                )
+            )
+        for link_name, mesh in self.scene.geometry.items():
+            parent = self.scene.graph.transforms.parents[link_name]
+            transform = self.scene.graph.get(
+                frame_to=link_name, frame_from=parent
+            )[0]
+            mesh = mesh.copy()
+            mesh.apply_transform(transform)
+            self.server.scene.add_mesh_simple(
+                self._node_name(link_name, root_node_name),
+                mesh.vertices,
+                mesh.faces,
+                color=color,
+            )
+
+    def _node_name(self, frame_name: str, root_node_name: str) -> str:
+        frames = []
+        while frame_name != self.scene.graph.base_frame:
+            frames.append(frame_name)
+            frame_name = self.scene.graph.transforms.parents[frame_name]
+        frames.append(root_node_name)
+        return "/".join(frames[::-1])
+
+    def update_cfg(self, configuration: np.ndarray | dict[str, float]) -> None:
+        self.urdf.update_cfg(configuration)
+        for joint, frame in zip(
+            self.urdf.joint_map.values(), self.joint_frames, strict=True
+        ):
+            transform = self.scene.graph.get(
+                frame_to=joint.child, frame_from=joint.parent
+            )[0]
+            frame.wxyz = xyzw_to_wxyz(rotation_matrix_to_xyzw(transform[:3, :3]))
+            frame.position = transform[:3, 3]
+
+    def get_actuated_joint_limits(
+        self,
+    ) -> dict[str, tuple[float | None, float | None]]:
+        limits = {}
+        for name, joint in zip(
+            self.urdf.actuated_joint_names,
+            self.urdf.actuated_joints,
+            strict=True,
+        ):
+            limits[name] = (
+                (-np.pi, np.pi)
+                if joint.limit is None
+                else (joint.limit.lower, joint.limit.upper)
+            )
+        return limits
+
+
 def run_viewer(args: argparse.Namespace) -> None:
     import viser
-    from viser import transforms as viser_tf
-
-    class UrdfView:
-        """Minimal visual/collision URDF renderer without viser.extras imports."""
-
-        def __init__(
-            self,
-            urdf: Any,
-            *,
-            root_node_name: str,
-            color: tuple[int, int, int],
-            collision: bool,
-        ) -> None:
-            self.urdf = urdf
-            self.collision = collision
-            self.scene = urdf.collision_scene if collision else urdf.scene
-            if self.scene is None:
-                raise ValueError("requested URDF scene graph was not loaded")
-            self.joint_frames = []
-            for joint in urdf.joint_map.values():
-                self.joint_frames.append(
-                    server.scene.add_frame(
-                        self._node_name(joint.child, root_node_name), show_axes=False
-                    )
-                )
-            for link_name, mesh in self.scene.geometry.items():
-                parent = self.scene.graph.transforms.parents[link_name]
-                transform = self.scene.graph.get(
-                    frame_to=link_name, frame_from=parent
-                )[0]
-                mesh = mesh.copy()
-                mesh.apply_transform(transform)
-                server.scene.add_mesh_simple(
-                    self._node_name(link_name, root_node_name),
-                    mesh.vertices,
-                    mesh.faces,
-                    color=color,
-                )
-
-        def _node_name(self, frame_name: str, root_node_name: str) -> str:
-            frames = []
-            while frame_name != self.scene.graph.base_frame:
-                frames.append(frame_name)
-                frame_name = self.scene.graph.transforms.parents[frame_name]
-            frames.append(root_node_name)
-            return "/".join(frames[::-1])
-
-        def update_cfg(self, configuration: np.ndarray) -> None:
-            self.urdf.update_cfg(configuration)
-            for joint, frame in zip(
-                self.urdf.joint_map.values(), self.joint_frames, strict=True
-            ):
-                transform = self.scene.graph.get(
-                    frame_to=joint.child, frame_from=joint.parent
-                )[0]
-                frame.wxyz = viser_tf.SO3.from_matrix(transform[:3, :3]).wxyz
-                frame.position = transform[:3, 3]
-
-        def get_actuated_joint_limits(
-            self,
-        ) -> dict[str, tuple[float | None, float | None]]:
-            limits = {}
-            for name, joint in zip(
-                self.urdf.actuated_joint_names,
-                self.urdf.actuated_joints,
-                strict=True,
-            ):
-                limits[name] = (
-                    (-np.pi, np.pi)
-                    if joint.limit is None
-                    else (joint.limit.lower, joint.limit.upper)
-                )
-            return limits
 
     old_urdf = _load_urdf(args.old_urdf, load_meshes=True)
     new_urdf = _load_urdf(args.new_urdf, load_meshes=True)
@@ -406,8 +411,8 @@ def run_viewer(args: argparse.Namespace) -> None:
     server.scene.add_label("/simtoolreal/label", "SimToolReal · Kuka + left Sharpa · 29 DOF", position=(0.0, 0.0, 1.25))
     sharpa_visual_root = server.scene.add_frame("/simtoolreal/visual_model", show_axes=False)
     sharpa_collision_root = server.scene.add_frame("/simtoolreal/collision_model", show_axes=False, visible=False)
-    sharpa_robot = UrdfView(sharpa_urdf, root_node_name="/simtoolreal/visual_model", color=(155, 110, 220), collision=False)
-    sharpa_collision = UrdfView(sharpa_urdf, root_node_name="/simtoolreal/collision_model", color=(255, 70, 70), collision=True)
+    sharpa_robot = UrdfView(sharpa_urdf, server, root_node_name="/simtoolreal/visual_model", color=(155, 110, 220), collision=False)
+    sharpa_collision = UrdfView(sharpa_urdf, server, root_node_name="/simtoolreal/collision_model", color=(255, 70, 70), collision=True)
     sharpa_wrist = server.scene.add_frame("/simtoolreal/wrist", axes_length=0.10)
     sharpa_center = server.scene.add_frame("/simtoolreal/observation_palm", axes_length=0.08)
     sharpa_tips = server.scene.add_point_cloud("/simtoolreal/tips", points=np.zeros((5, 3)), colors=(40, 220, 255), point_size=0.018)
@@ -469,25 +474,25 @@ def run_viewer(args: argparse.Namespace) -> None:
         "/new/collision_model", show_axes=False, visible=False
     )
     old_robot = UrdfView(
-        old_urdf,
+        old_urdf, server,
         root_node_name="/old/visual_model",
         color=(70, 130, 255),
         collision=False,
     )
     new_robot = UrdfView(
-        new_urdf,
+        new_urdf, server,
         root_node_name="/new/visual_model",
         color=(255, 155, 60),
         collision=False,
     )
     old_collision_robot = UrdfView(
-        old_urdf,
+        old_urdf, server,
         root_node_name="/old/collision_model",
         color=(255, 70, 70),
         collision=True,
     )
     new_collision_robot = UrdfView(
-        new_urdf,
+        new_urdf, server,
         root_node_name="/new/collision_model",
         color=(255, 70, 70),
         collision=True,
@@ -626,12 +631,17 @@ the authored `right_palm_link`. Both frames also show their local XYZ axes.
         }
     virtual_controls = {}
     virtual_initial = {}
+    virtual_save_buttons = {}
+    virtual_save_status = {}
     with server.gui.add_folder("Virtual palm tuning · 手掌局部坐标", expand_by_default=True):
-        server.gui.add_markdown("紫色球心为 URDF palm_center，坐标轴跟随 right_palm_link。X 已调为 +4 mm，Y/Z 保留掌体包围盒中心，并非接触面标定点。单位 m，步长 1 mm。调整仅用于预览；下方 XML 可复制到对应 URDF。训练 observation 尚未切换。")
+        server.gui.add_markdown("紫色球心为 URDF palm_center，坐标轴跟随 right_palm_link。X 已调为 +4 mm，Y/Z 保留掌体包围盒中心，并非接触面标定点。单位 m，步长 1 mm。调整时预览；点击各模型的确认按钮写入对应 URDF。训练 observation 配置不会自动切换。")
         for name, model in (("old", old_urdf), ("new", new_urdf)):
             virtual_initial[name] = np.array(model.get_transform("palm_center", "right_palm_link"), copy=True)
             virtual_controls[name] = server.gui.add_vector3(f"{name} palm xyz (m)", initial_value=tuple(virtual_initial[name][:3, 3]), step=0.001)
             virtual_frames[name] = server.scene.add_frame(f"/{name}/virtual_palm", axes_length=0.065, axes_radius=0.003)
+            virtual_save_buttons[name] = server.gui.add_button(f"确认 {name} 掌心并写入 URDF")
+            target = args.old_urdf if name == "old" else args.new_urdf
+            virtual_save_status[name] = server.gui.add_markdown(f"保存目标：`{target.resolve()}`")
         reset_virtual = server.gui.add_button("Reset virtual palms to URDF")
         virtual_summary = server.gui.add_markdown("")
 
@@ -950,6 +960,22 @@ the authored `right_palm_link`. Both frames also show their local XYZ axes.
     reset_kuka.on_click(lambda _event: set_kuka_joints(SHARPA_START_ARM))
     zero_kuka.on_click(lambda _event: set_kuka_joints(np.zeros(7)))
 
+    def save_virtual_palm(_event, name):
+        with state_lock:
+            target = args.old_urdf if name == "old" else args.new_urdf
+            xyz = tuple(virtual_controls[name].value)
+            rpy = Rotation.from_matrix(virtual_initial[name][:3, :3]).as_euler("xyz")
+            try:
+                path = save_palm_frame(target, "right_palm_link", xyz, rpy)
+            except (OSError, ValueError, etree.XMLSyntaxError) as exc:
+                virtual_save_status[name].content = f"**保存失败：{exc}**"
+                return
+            virtual_initial[name][:3, 3] = xyz
+            virtual_save_status[name].content = f"**已保存到 `{path}`**；xyz: `{xyz}`"
+
+    for name, button in virtual_save_buttons.items():
+        button.on_click(partial(save_virtual_palm, name=name))
+
     @reset_virtual.on_click
     def _reset_virtual(_event: Any) -> None:
         for name in ("old", "new"):
@@ -1024,6 +1050,8 @@ the authored `right_palm_link`. Both frames also show their local XYZ axes.
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--urdf", type=Path, help="Inspect one URDF with automatic hand recognition")
+    parser.add_argument("--palm-link", help="Override the reference link in single-URDF mode")
     parser.add_argument("--old-urdf", type=Path, default=OLD_URDF)
     parser.add_argument("--new-urdf", type=Path, default=NEW_URDF)
     parser.add_argument("--simtoolreal-urdf", type=Path, default=SIMTOOLREAL_URDF)
@@ -1033,7 +1061,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    run_viewer(parse_args())
+    args = parse_args()
+    if args.urdf is not None:
+        from tools.palm_inspector import run_single_viewer
+
+        run_single_viewer(args)
+    elif args.palm_link is not None:
+        raise SystemExit("--palm-link requires --urdf")
+    else:
+        run_viewer(args)
 
 
 if __name__ == "__main__":

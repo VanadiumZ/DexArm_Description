@@ -4,3 +4,4 @@ scipy==1.15.3
 yourdfpy==0.0.60
 trimesh==4.5.1
 viser==1.0.30
+lxml==6.1.3

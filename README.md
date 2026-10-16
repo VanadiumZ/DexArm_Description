@@ -2,31 +2,347 @@
 
 本仓库提供基于 **UFACTORY xArm7** 的多种末端执行器（Wuji 灵巧手、XHand、xArm 平行夹爪）URDF 模型，以及对应的可视化/碰撞网格。模型可用于 ROS、Gazebo、PyBullet、Isaac Sim 等支持 URDF 的工具链。
 
-## 虚拟掌心与 observation 查看器
+## 虚拟掌心与 observation 工具使用指南
 
-独立工具入口为 [`tools/urdf_observation_viewer.py`](tools/urdf_observation_viewer.py)，
-同时展示侧装 Wuji、直装相机 Wuji 和历史 Kuka + 左 Sharpa，支持关节调节、
-visual/collision 显示、虚拟掌心位置调节及 observation 几何对照。
-Kuka + Sharpa 的完整 URDF 和网格已随工具迁入 `assets/urdf/kuka_sharpa_description/`。
+工具可以加载机器人 URDF、调整关节和虚拟掌心、摆放测试物体，并实时显示
+observation 几何分量和相对向量。调整完成后，可在 Viser 页面点击确认按钮，
+将掌心定义直接写回正在查看的 URDF。
 
-**历史训练 observation 功能专门针对 SimToolReal 风格训练设计**，保留 Interprior
-迁移时的字段顺序、世界轴相对向量、xyzw quaternion、指尖偏移及 link7 掌心基线。
-这些是特定训练约定，不是所有机器人或训练框架通用的 observation 标准；
-显示结果不会自动修改训练配置。详细约定见
-[`docs/asset_observation_comparison.md`](docs/asset_observation_comparison.md)。
+工具使用独立 Python CPU 环境，不需要 Interprior、Isaac Sim/Lab、CUDA 或 ROS。
+服务器负责 URDF/FK 计算，浏览器负责三维显示；不运行物理仿真或训练。
 
-普通 Python 3.11 CPU 环境即可运行，不依赖 Interprior 或 Isaac Sim：
+**历史 observation 对照专门针对 SimToolReal 风格训练设计。**
+Wuji/Sharpa 保留迁移时的掌心定义、指尖偏移和几何计算约定；XHand/未知型号提供
+明确列出的几何观测，不默认兼容已有策略的完整 observation。
+详细历史字段见 [SimToolReal observation 说明](docs/asset_observation_comparison.md)。
+
+### 1. 安装与快速开始
+
+以下命令在仓库根目录执行，使用 Python 3.11：
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m tools.urdf_observation_viewer --host 127.0.0.1 --port 8080
+
+# 加载 XHand，进入单模型完整调节界面
+python -m tools.urdf_observation_viewer \
+  --urdf xarm7_xhand_direct.urdf \
+  --host 127.0.0.1 --port 8080
 ```
 
-打开 `http://localhost:8080`，使用 `Virtual palm tuning · 手掌局部坐标` 调节掌心。
-调节结果只显示为可复制的 URDF XML，**不会自动保存到资产**。
-完整安装、远程访问、资产参数和测试方法见 [`docs/environment.md`](docs/environment.md)。
+浏览器打开 `http://localhost:8080`。停止工具时，在启动终端按 `Ctrl+C`。
+修改工具代码后需停止旧进程，再重新运行。
+
+如果已经安装好仓库的 `.venv`，无需重新创建，直接启动：
+
+```bash
+.venv/bin/python -m tools.urdf_observation_viewer \
+  --urdf xarm7_xhand_direct.urdf --host 127.0.0.1 --port 8080
+```
+
+使用 uv 安装或更新依赖：
+
+```bash
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+已有 uv 环境只执行第二行即可；uv 创建的环境默认可能没有 pip。
+其他环境细节见 [环境配置文档](docs/environment.md)。
+
+### 2. 选择运行模式和模型
+
+| 模式 | 启动方式 | 用途 |
+| --- | --- | --- |
+| 单模型模式 | 指定 `--urdf` | Wuji、Sharpa、XHand 或新 URDF；关节、掌心 xyz/rpy、物体与观测、确认保存 |
+| 历史三模型对照 | 不指定 `--urdf` | 同时比较两套 Wuji 与 Kuka + 左 Sharpa 的 SimToolReal 风格几何 |
+
+#### 单模型启动示例
+
+```bash
+# XHand 直装
+.venv/bin/python -m tools.urdf_observation_viewer --urdf xarm7_xhand_direct.urdf
+
+# XHand 直装带相机
+.venv/bin/python -m tools.urdf_observation_viewer --urdf xarm7_xhand_direct_camera.urdf
+
+# Wuji 侧装，也可换成其他 xarm7_wuji_*.urdf
+.venv/bin/python -m tools.urdf_observation_viewer --urdf xarm7_wuji_90.urdf
+
+# Kuka + 左 Sharpa
+.venv/bin/python -m tools.urdf_observation_viewer \
+  --urdf assets/urdf/kuka_sharpa_description/iiwa14_left_sharpa_adjusted_restricted.urdf
+
+# 通用模式：夹爪，并指定 TCP 为掌心参考 link
+.venv/bin/python -m tools.urdf_observation_viewer \
+  --urdf xarm7_gripper.urdf --palm-link link_tcp
+
+# 外部 URDF；路径与 link 名需替换成实际值
+.venv/bin/python -m tools.urdf_observation_viewer \
+  --urdf /path/to/robot.urdf --palm-link your_palm_link
+```
+
+URDF 必须能找到其引用的网格文件，不能只复制 URDF 而遗漏 mesh。
+默认资产路径按工具所在仓库解析；显式传入的相对路径按启动时的工作目录解析。
+
+#### 历史三模型对照
+
+```bash
+.venv/bin/python -m tools.urdf_observation_viewer
+```
+
+默认加载：
+
+| 界面名称 | 模型 |
+| --- | --- |
+| old | `xarm7_wuji_90.urdf`，侧装 Wuji |
+| new | `xarm7_wuji_direct_camera.urdf`，直装相机 Wuji |
+| SimToolReal | `assets/urdf/kuka_sharpa_description/iiwa14_left_sharpa_adjusted_restricted.urdf` |
+
+两套 Wuji 的手臂分别调节，20 个手指关节及测试物体姿态共享；模型沿 Y 轴分开仅供显示。
+可以查看两套 Wuji 的几何差异、历史 Sharpa 偏移、物体 keypoint、相对向量和 JSON 快照。
+此模式的 Wuji 掌心控件调节 xyz，姿态沿用 URDF；各自的确认按钮写回 old/new 文件。
+要调节掌心 rpy、使用更细的调节步长或保存 Sharpa 掌心，请通过 `--urdf` 进入单模型模式。
+
+`--old-urdf`、`--new-urdf`、`--simtoolreal-urdf` 用于替换对应对照资产，仍要求原有
+Wuji/Sharpa 关节和 link 结构；不能用这些参数直接替换成 XHand。
+
+### 3. 手型识别与自动关节读取
+
+识别依据是 URDF 内部关节和 link 名称，不依赖文件名。
+
+| 手型 | 控制顺序 | 默认掌心参考 link | 本仓库自由度 |
+| --- | --- | --- | --- |
+| 右 Wuji | xArm7，然后 finger1～5 各 4 个关节 | `right_palm_link` | 27 |
+| 左 Sharpa | Kuka，然后历史 Sharpa 固定关节顺序 | `left_hand_C_MC` | 29 |
+| 右 XHand | xArm7，然后 thumb/index/mid/ring/pinky | `right_hand_link` | 19 |
+| 未知型号 | 自动读取独立关节，保持 URDF 顺序 | 根 link，需自行选择掌心参考 | 由 URDF 决定 |
+
+已知手型使用固定映射，额外的可动关节按 URDF 顺序追加。改名、关节不完整或其他左右手版本
+若不符合现有签名，会进入通用模式。通用模式支持 `revolute`、`continuous`、`prismatic`；
+不提供 `floating`/`planar` 多自由度关节控制。`mimic` 关节随源关节更新，不单独控制。
+
+关节控件读取 URDF 限位：旋转单位 rad，移动单位 m；没有限位时不设置输入上下界。
+查看器中的关节配置是调试姿态，不会通过掌心确认按钮保存到 URDF。
+
+### 4. 单模型界面：从定位掌心到保存
+
+#### 显示模型与选择参考 link
+
+用 `显示 visual` / `显示 collision` 切换外观与碰撞网格，在“关节控制”中摆好机器人姿态。
+进入 **Virtual palm tuning · 手掌局部坐标**，检查 `掌心参考 link`：
+
+- 已知手型默认使用上表中的手掌 link；也可用 `--palm-link` 或页面下拉框更改。
+- 未知模型默认是根 link，应先改成实际手掌或希望附着掌心的刚体。
+- xyz/rpy 表示虚拟掌心相对于该 link 的局部变换，不是世界坐标。
+- 不允许把 `palm_center` 或其子节点选作父节点，避免形成关节环。
+
+初值优先读取 URDF 已有的 `palm_center`。没有该 frame 时，Sharpa 在存在 Kuka 腕部
+link 的情况下使用历史偏移；XHand 和未知模型从所选 link 原点开始，需自行确定掌心位置。
+初值不等于已标定的接触面中心。
+
+#### 大球定位和精调
+
+| 控件 | 选项／单位 | 默认值 |
+| --- | --- | --- |
+| 掌心球显示 | 大球半径 25 mm / 小球半径 4 mm / 隐藏 | 大球 |
+| 位置调节步长 | 1 / 0.1 / 0.01 mm | 0.1 mm |
+| 姿态调节步长 | 0.01 / 0.001 / 0.0001 rad | 0.001 rad |
+| `xyz (m)` | 局部位置，直接输入米值 | 来自已加载掌心或型号初值 |
+| `rpy (rad)` | 局部 roll、pitch、yaw | 来自已加载掌心或型号初值 |
+
+先用大球定位，再切换小球和细步长进行精调。输入框保留 7 位小数，也可以直接键入数值。
+例如沿参考 link 的 X 轴增加 0.1 mm，就是将 x 增加 `0.0001` m。
+显示球的球心才是掌心参考点；球半径只影响显示，不改变 observation，也不会写成碰撞几何。
+
+切换参考 link 会恢复已加载／最近确认的掌心相对于新 link 的变换，
+不会保留尚未确认的局部输入。未存在掌心定义时，使用该型号的初始化规则。
+
+#### 确认并覆写当前 URDF
+
+1. 检查面板中的保存目标路径，以及当前参考 link、xyz/rpy。
+2. 点击 **确认掌心并写入 URDF**。
+3. 查看面板“已保存到 …”及保存参数；失败时同一区域显示原因。
+
+按钮直接写入启动时 `--urdf` 指定的文件，包括外部路径对应的文件：
+
+- 没有 `palm_center` 时，添加该 link 及 `palm_center_joint` 固定关节。
+- 已有 `palm_center` 时，更新其固定关节的 parent 和 origin；保留已有关节名称。
+- 重复确认更新同一掌心定义，不重复添加节点；保留其他模型定义、注释和网格路径。
+- 只保存掌心定义，不保存物体姿态、关节调试角度、球体显示选项或 observation 配置。
+
+调整数值本身只预览，点击确认才写入。**恢复已加载／确认的掌心** 会恢复启动时的定义，
+或本次会话最近确认的参数；该按钮本身不写文件。确认后继续调整，需要再次确认才会保存。
+重启工具会读取已写入的掌心定义。
+
+保存后的 XML 形如：
+
+```xml
+<link name="palm_center"/>
+<joint name="palm_center_joint" type="fixed">
+  <parent link="right_hand_link"/>
+  <child link="palm_center"/>
+  <origin xyz="0.01 0.02 0.03" rpy="0 0 0"/>
+</joint>
+```
+
+上述数值只是格式示例，不是 XHand 推荐标定值。保存 URDF 后，训练端仍需显式使用
+该 frame；不会自动改变策略输入定义。接入方法见下文“Wuji 虚拟掌心与 RL training”。
+
+### 5. 测试物体、掌心参考与实时 observation
+
+进入 **Object / observation · 物体与观测**：
+
+1. 拖动黄色物体的平移／旋转控件，改变物体位姿。
+2. 修改 `物体尺寸 xyz (m)` 和 `Keypoint scale`。
+3. 修改关节或掌心 xyz/rpy，观察数值、指尖点和物体 keypoint 的实时变化。
+4. 用 `显示指尖 / keypoint 相对向量` 控制连线显示。
+5. 用 `重置物体姿态与尺寸` 恢复初始物体：位置 `(0.45, 0, 0.56)` m、无旋转、
+   尺寸 `(0.04, 0.04, 0.04)` m、keypoint scale `1.5`。
+
+当前测试物体是可调尺寸的长方体，不提供任意物体 mesh 导入入口。
+物体 keypoint 使用四个固定角点符号 `+++ / ++- / --+ / ---`，由半尺寸乘 keypoint scale
+后按物体姿态变换。scale 为 1 时在长方体角点上；默认 1.5 会在几何体之外。
+
+`Observation 掌心参考` 决定观测使用的点和朝向：
+
+| 选项 | 位置／朝向来源 |
+| --- | --- |
+| `virtual` | 当前调节后的虚拟掌心 |
+| `semantic` | 页面所选参考 link 的原点和朝向 |
+| `legacy`（Wuji） | 历史 `link7` 原点和朝向 |
+| `legacy`（Sharpa） | Kuka 腕部旋转后的 `(0, -0.02, 0.16)` m 偏移点，朝向沿用腕部 |
+
+XHand/未知型号不提供 legacy。紫色球是调节中的虚拟掌心，绿色标记及坐标轴是当前
+observation 参考；选择 virtual 时两者重合。即使 observation 选择 semantic/legacy，
+确认保存的仍是 xyz/rpy 控件中的虚拟掌心定义。
+
+#### 指尖来源
+
+| 手型 | 观测指尖定义 | 顺序 |
+| --- | --- | --- |
+| Wuji | `right_finger*_link4` 加历史标定偏移 | thumb/index/middle/ring/pinky |
+| Sharpa | 对应 DP link 加 `(0.02, 0.002, 0)` m 局部偏移 | index/middle/ring/thumb/pinky |
+| XHand | URDF tip frame 原点，未标定接触点 | thumb/index/middle/ring/pinky |
+| 未知型号 | 用户填写的 link 原点 | 输入顺序 |
+
+未知模型在 `指尖 link（逗号分隔，可为空）` 中输入实际 link 名称。
+留空时不计算指尖分量，但仍显示掌心和物体观测；不会自动把所有末端 link 当作指尖。
+
+#### 观测字段、维度和坐标约定
+
+单模型面板提供以下几何向量，`N` 为指尖数量：
+
+| 字段 | 维度 | 五指时的区间（左闭右开） | 定义 |
+| --- | --- | --- | --- |
+| `palm_pos` | 3 | `[0:3]` | 当前观测掌心在机器人基坐标系中的位置 |
+| `palm_rot_xyzw` | 4 | `[3:7]` | 当前观测掌心朝向，quaternion 为 xyzw |
+| `fingertip_pos_rel_palm` | `3N` | `[7:22]` | 各指尖位置减去掌心位置 |
+| `keypoints_rel_palm` | 12 | `[22:34]` | 四个物体 keypoint 位置减去掌心位置 |
+
+合计 `19 + 3N` 维：五指为 **34D**，不选择指尖时为 **19D**。
+页面另列 `object_rot_xyzw`，它不拼入上述向量。动态区间以面板／快照中的
+`geometry_slices` 为准。
+
+位置使用 m，角度使用 rad。相对向量是在机器人基坐标轴下相减，
+**没有乘掌心逆旋转**；旋转掌心朝向本身不会把相对向量改成掌心局部坐标。
+物体控件内部使用 wxyz，导出的 quaternion 字段使用 xyzw。
+
+该向量对应原工具的 critical geometry block，**不是完整 134D/140D actor observation**。
+单模型模式没有仿真速度、前一动作或目标状态，不会填造这些字段；XHand 的 34D 几何
+也不意味着能直接输入 Wuji/Sharpa 的旧策略。
+
+### 6. JSON 快照与文件保存的区别
+
+点击 **Print snapshot JSON**，快照打印到启动工具的终端，不会自动下载或写成 JSON 文件。
+单模型快照包含：
+
+| 内容 | 字段 |
+| --- | --- |
+| 模型与参考 | `hand_type`、`anchor`、`palm_parent`、坐标／定义说明 |
+| 关节配置 | `joint_names`、`joint_positions_raw`；数值未归一化 |
+| 掌心参数 | `palm_local_xyz`、`palm_local_rpy`、虚拟掌心位置／朝向 |
+| 物体状态 | `object_position`、`object_rot_xyzw`、`object_size`、`keypoint_scale` |
+| 指尖／keypoint | `tip_links`、`tip_offsets_local`、`fingertip_positions`、`object_keypoints` |
+| 观测 | `geometry_fields`、`geometry_slices`、`geometry_vector` |
+
+需要留存整个运行日志，可在启动命令末尾加 `2>&1 | tee viewer.log`。
+该日志同时包含服务输出和点击时打印的 JSON，不是单个纯 JSON 文档。
+
+**确认掌心并写入 URDF** 保存模型定义；**Print snapshot JSON** 记录当前调试状态。
+两个按钮独立，不会互相触发。原三模型模式也支持快照，但使用 old/new/SimToolReal 对照结构，
+并非上述单模型 schema。
+
+### 7. 远程访问和命令行参数
+
+服务器上直接提供页面：
+
+```bash
+.venv/bin/python -m tools.urdf_observation_viewer \
+  --urdf xarm7_xhand_direct.urdf --host 0.0.0.0 --port 8080
+```
+
+本机浏览器访问 `http://服务器IP:8080`。如果使用 SSH 端口转发，服务器端使用
+`--host 127.0.0.1 --port 8080`，本机另开终端执行：
+
+```bash
+ssh -L 8080:127.0.0.1:8080 user@server
+```
+
+然后打开本机 `http://localhost:8080`；按实际账号和服务器地址替换 `user@server`。
+
+| 参数 | 默认值／作用 |
+| --- | --- |
+| `--urdf PATH` | 指定后进入单模型模式；不指定则进入历史三模型模式 |
+| `--palm-link NAME` | 覆盖单模型默认掌心参考 link；必须与 `--urdf` 同用 |
+| `--old-urdf PATH` | 对照模式 old Wuji；默认 `xarm7_wuji_90.urdf` |
+| `--new-urdf PATH` | 对照模式 new Wuji；默认 `xarm7_wuji_direct_camera.urdf` |
+| `--simtoolreal-urdf PATH` | 对照模式 Kuka + Sharpa；默认上文资产路径 |
+| `--host ADDRESS` | 默认 `0.0.0.0`；仅本机访问可用 `127.0.0.1` |
+| `--port NUMBER` | 默认 `8080`；占用时改成 `8081` 等空闲端口 |
+| `--help` | 查看命令行帮助 |
+
+指定 `--urdf` 时，不使用三个历史对照资产参数；单模型模式只加载所选模型。
+
+### 8. 常见问题
+
+| 现象 | 处理方法 |
+| --- | --- |
+| 页面仍是旧界面／没有新按钮 | 停止旧 Python 进程，用当前仓库 `.venv` 重新启动，再刷新浏览器 |
+| 进入了三模型界面，想查看 XHand | 添加 `--urdf xarm7_xhand_direct.urdf` |
+| 掌心在 mesh 内看不清 | 使用默认 25 mm 大球，或暂时关闭 visual；精调时切换小球 |
+| XHand 掌心初始位置不合适 | 无已保存 frame 时从 `right_hand_link` 原点开始，需调节并确认保存 |
+| 未知手型没有指尖向量 | 在指尖输入框填写实际 link 名称；空输入不会猜测指尖 |
+| 页面显示物体尺寸／指尖错误 | 尺寸各分量必须为正且有限，指尖名称必须存在；修正后恢复观测和快照导出 |
+| 点击保存失败 | 看面板错误；检查文件／目录写权限、父 link、重名节点、是否形成环，以及已有掌心是否为 fixed joint |
+| 修改了 xyz，重启却没有变化 | 确认是否点击保存成功，且重启时加载的是面板显示的同一个文件 |
+| 找不到 mesh | 保留 URDF 对应目录结构和网格文件，检查相对路径和大小写 |
+| 远程页面打不开 | 检查启动输出中的端口、host 和转发设置；也可通过 SSH 转发访问 |
+| 34D 向量不能用于旧 policy | 它只是几何分量，完整训练 observation 还涉及关节归一化、速度、动作历史及任务字段 |
+
+### 9. 测试与工具代码入口
+
+```bash
+# 普通 venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q tests
+
+# 如果是 uv 环境，安装测试依赖改用：
+uv pip install --python .venv/bin/python -r requirements-dev.txt
+```
+
+| 文件 | 职责 |
+| --- | --- |
+| [tools/urdf_observation_viewer.py](tools/urdf_observation_viewer.py) | CLI、历史三模型对照、共享 URDF 渲染和几何计算 |
+| [tools/palm_inspector.py](tools/palm_inspector.py) | 单模型识别、关节控制、掌心精调、物体与观测交互 |
+| [tools/urdf_palm.py](tools/urdf_palm.py) | 确认后的掌心 frame 写入、更新和结构检查 |
+| [requirements.txt](requirements.txt) | 独立工具依赖 |
+| [requirements-dev.txt](requirements-dev.txt) | 测试依赖 |
+
+当前 22 项测试覆盖已知／未知模型、FK 和历史几何一致性、物体和掌心变换、掌心写入与重复保存。
+另已通过实际 Viser WebSocket 事件验证 XHand 的控件更新、快照、大／小球切换、精调、
+确认写入和恢复；这些检查未替代浏览器画面的人工检查或动力学仿真验证。
 
 ## ⚠️ 使用前须知
 
@@ -47,7 +363,10 @@ python -m tools.urdf_observation_viewer --host 127.0.0.1 --port 8080
 ├── README.md
 ├── requirements.txt                 # 查看器独立运行依赖
 ├── requirements-dev.txt             # 测试依赖
-├── tools/urdf_observation_viewer.py  # 虚拟掌心与 observation 查看器
+├── tools/
+│   ├── urdf_observation_viewer.py    # CLI、历史对照与共享渲染
+│   ├── palm_inspector.py            # 单模型掌心与 observation 交互
+│   └── urdf_palm.py                 # 确认写入 URDF
 ├── docs/                            # 环境与历史 observation 说明
 ├── tests/                           # 几何检查
 ├── assets/urdf/kuka_sharpa_description/  # Kuka + 左 Sharpa URDF 与网格
